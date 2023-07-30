@@ -1,0 +1,83 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Simple CloudFormation Template for Creating an S3 Bucket
+
+Resources:
+  DynamoDBBlogTableLabel:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: blogIt
+      AttributeDefinitions: 
+        - AttributeName: email
+          AttributeType: S
+        - AttributeName: blog_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: email
+          KeyType: HASH
+        - AttributeName: blog_id
+          KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+  ###SQS QUEUE
+  MySQSQueueLabel:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: blogs-test-cf
+      DelaySeconds: 0
+      MaximumMessageSize: 262144
+      MessageRetentionPeriod: 345600
+      ReceiveMessageWaitTimeSeconds: 0
+      VisibilityTimeout: 30
+
+  BlogToQueueLabel:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: TestAddBlogCF1
+      Runtime: nodejs14.x
+      Role: arn:aws:iam::524240663239:role/LabRole
+      Handler: index.handler
+      Code: 
+        S3Bucket: myuniqicstreet
+        S3Key: testAddBlogCF-12e07df9-2b56-4d7d-8dfd-40ee65ab5703.zip
+
+  SNSLabel:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: blogitAdmin
+
+  SNSSubscriptionLabel:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: email
+      TopicArn: !Ref SNSLabel
+      Endpoint: alensanjohn1999@gmail.com
+
+  QueueCheckerLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: QueueCheckerCF
+      Runtime: nodejs14.x
+      Role: arn:aws:iam::524240663239:role/LabRole
+      Handler: index.handler
+      Code:
+        S3Bucket: myuniqicstreet
+        S3Key: testQueueCF-d693c128-6de4-4c51-b768-7c29bc6d825f.zip
+      Environment:
+        Variables:
+          SNSTopicARN: !Ref SNSLabel
+
+  QueueCheckerLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt QueueCheckerLambda.Arn
+      Action: lambda:InvokeFunction
+      Principal: sns.amazonaws.com
+      SourceArn: !GetAtt MySQSQueueLabel.Arn
+
+  LabelSourceMap:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: 1
+      EventSourceArn: !GetAtt MySQSQueueLabel.Arn
+      FunctionName: !GetAtt QueueCheckerLambda.Arn

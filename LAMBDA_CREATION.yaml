@@ -1,0 +1,18 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Simple CloudFormation Template for Creating an S3 Bucket
+
+Resources:
+  MyS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: myuniqicstreet
+  AlenLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        S3Bucket: myuniqicstreet  # Replace with your S3 bucket name
+        S3Key: SaveUserInformation-bd548f58-1f4a-41f6-9fed-6ce033643c60.zip  # Replace with your S3 key
+      Handler: index.handler  # Replace with your Lambda function's handler name
+      Runtime: nodejs14.x  # Replace with the appropriate runtime for your Lambda function
+      Role: arn:aws:iam::524240663239:role/LabRole
+

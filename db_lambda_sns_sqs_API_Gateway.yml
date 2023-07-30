@@ -1,0 +1,129 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Simple CloudFormation Template for Creating an S3 Bucket
+
+Resources:
+  DynamoDBBlogTableLabel:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: blogIt
+      AttributeDefinitions: 
+        - AttributeName: email
+          AttributeType: S
+        - AttributeName: blog_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: email
+          KeyType: HASH
+        - AttributeName: blog_id
+          KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+  ###SQS QUEUE
+  MySQSQueueLabel:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: blogs-test-cf
+      DelaySeconds: 0
+      MaximumMessageSize: 262144
+      MessageRetentionPeriod: 345600
+      ReceiveMessageWaitTimeSeconds: 0
+      VisibilityTimeout: 30
+  ###Lambda
+  BlogToQueueLabel:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: TestAddBlogCF1
+      Runtime: nodejs14.x
+      Role: arn:aws:iam::524240663239:role/LabRole
+      Handler: index.handler
+      Code: 
+        S3Bucket: myuniqicstreet
+        S3Key: testAddBlogCF-12e07df9-2b56-4d7d-8dfd-40ee65ab5703.zip
+  ###SNS SERVICE
+  SNSLabel:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: blogitAdmin
+  ###SNS Subscriber
+  SNSSubscriptionLabel:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: email
+      TopicArn: !Ref SNSLabel
+      Endpoint: alensanjohn1999@gmail.com
+  ### QUEUE CHECKER LAMBDA IS TRIGGered
+  QueueCheckerLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: QueueCheckerCF
+      Runtime: nodejs14.x
+      Role: arn:aws:iam::524240663239:role/LabRole
+      Handler: index.handler
+      Code:
+        S3Bucket: myuniqicstreet
+        S3Key: testQueueCF-d693c128-6de4-4c51-b768-7c29bc6d825f.zip
+      Environment:
+        Variables:
+          SNSTopicARN: !Ref SNSLabel
+  ### SETTING LAMBDA TRIGGER
+  QueueCheckerLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt QueueCheckerLambda.Arn
+      Action: lambda:InvokeFunction
+      Principal: sns.amazonaws.com
+      SourceArn: !GetAtt MySQSQueueLabel.Arn
+  ###Source MAp
+  LabelSourceMap:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: 1
+      EventSourceArn: !GetAtt MySQSQueueLabel.Arn
+      FunctionName: !GetAtt QueueCheckerLambda.Arn
+  ###API GATEWAY
+  APIGATEWAYLabel:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: TestGateWay
+  ###API Gateway Resource
+  ResourceLabel:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref APIGATEWAYLabel
+      ParentId: !GetAtt APIGATEWAYLabel.RootResourceId
+      PathPart: blog
+  ###POST Method for the resource
+  MethodLabel:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref APIGATEWAYLabel
+      ResourceId: !Ref ResourceLabel
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${BlogToQueueLabel.Arn}/invocations"
+  # Add a permission to allow API Gateway to invoke the Lambda function
+  ApiGatewayInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt BlogToQueueLabel.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+
+  # Deploy the api
+  DeployApiLabel:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - MethodLabel
+    Properties:
+      RestApiId: !Ref APIGATEWAYLabel
+  # Test Stage
+  TestStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      DeploymentId: !Ref DeployApiLabel
+      RestApiId: !Ref APIGATEWAYLabel
+      StageName: test

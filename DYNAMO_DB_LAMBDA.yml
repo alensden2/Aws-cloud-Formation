@@ -1,0 +1,59 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Simple CloudFormation Template for Creating an S3 Bucket
+
+Parameters:
+  UserTableName:
+    Type: String
+    Description: Name of the User DynamoDB table
+
+  BlogTableName:
+    Type: String
+    Description: Name of the Blog DynamoDB table
+
+Resources:
+  MyDynamoDBTable1:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref UserTableName
+      AttributeDefinitions:
+        - AttributeName: email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: email
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+
+  MyDynamoDBTable2:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref BlogTableName
+      AttributeDefinitions:
+        - AttributeName: email
+          AttributeType: S
+        - AttributeName: blog_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: email
+          KeyType: HASH
+        - AttributeName: blog_id
+          KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+
+  alenLambdaDynamoDB:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: MyLambdaFunction
+      Runtime: nodejs14.x
+      Role: arn:aws:iam::524240663239:role/LabRole
+      Handler: index.handler
+      Code:
+        S3Bucket: myuniqicstreet
+        S3Key: ttt-AlenLambdaFunction-fUcLIsUVerKu-6de6a7d6-bacb-4f54-a350-d5839d0406c8.zip
+      Environment:
+        Variables:
+          DynamoDBTableName: !Ref MyDynamoDBTable1  # Corrected reference to the DynamoDB table resource
+

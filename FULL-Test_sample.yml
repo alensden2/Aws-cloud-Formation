@@ -1,0 +1,257 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Simple CloudFormation Template for Creating an S3 Bucket
+
+Resources:
+  DynamoDBBlogTableLabel:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: blogIt
+      AttributeDefinitions: 
+        - AttributeName: email
+          AttributeType: S
+        - AttributeName: blog_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: email
+          KeyType: HASH
+        - AttributeName: blog_id
+          KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+  ###SQS QUEUE
+  MySQSQueueLabel:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: blogs-test-cf
+      DelaySeconds: 0
+      MaximumMessageSize: 262144
+      MessageRetentionPeriod: 345600
+      ReceiveMessageWaitTimeSeconds: 0
+      VisibilityTimeout: 30
+  ###Lambda
+  BlogToQueueLabel:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: TestAddBlogCF1
+      Runtime: nodejs14.x
+      Role: arn:aws:iam::524240663239:role/LabRole
+      Handler: index.handler
+      Code: 
+        S3Bucket: myuniqicstreet
+        S3Key: testAddBlogCF-12e07df9-2b56-4d7d-8dfd-40ee65ab5703.zip
+  ###SNS SERVICE
+  SNSLabel:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: blogitAdmin
+  ###SNS Subscriber
+  SNSSubscriptionLabel:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: email
+      TopicArn: !Ref SNSLabel
+      Endpoint: alensanjohn1999@gmail.com
+  ### QUEUE CHECKER LAMBDA IS TRIGGered
+  QueueCheckerLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: QueueCheckerCF
+      Runtime: nodejs14.x
+      Role: arn:aws:iam::524240663239:role/LabRole
+      Handler: index.handler
+      Code:
+        S3Bucket: myuniqicstreet
+        S3Key: TestAddBlogCF1-433d17a6-3d5d-456d-b1fd-db63122d33f2.zip
+      Environment:
+        Variables:
+          SNSTopicARN: !Ref SNSLabel
+  ### SETTING LAMBDA TRIGGER
+  QueueCheckerLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt QueueCheckerLambda.Arn
+      Action: lambda:InvokeFunction
+      Principal: sns.amazonaws.com
+      SourceArn: !GetAtt MySQSQueueLabel.Arn
+  ###Source MAp
+  LabelSourceMap:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: 1
+      EventSourceArn: !GetAtt MySQSQueueLabel.Arn
+      FunctionName: !GetAtt QueueCheckerLambda.Arn
+  ###API GATEWAY
+  APIGATEWAYLabel:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: TestGateWay
+  ###API Gateway Resource
+  ResourceLabel:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref APIGATEWAYLabel
+      ParentId: !GetAtt APIGATEWAYLabel.RootResourceId
+      PathPart: blog
+  OptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      RestApiId: !Ref APIGATEWAYLabel
+      ResourceId: !Ref ResourceLabel
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key'"
+              "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,DELETE'"
+              "method.response.header.Access-Control-Allow-Origin": "'*'"
+            ResponseTemplates:
+              "application/json": ""
+        PassthroughBehavior: WHEN_NO_MATCH
+        RequestTemplates:
+          "application/json": '{"statusCode": 200}'
+        Type: MOCK
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers": true
+            "method.response.header.Access-Control-Allow-Methods": true
+            "method.response.header.Access-Control-Allow-Origin": true
+          ResponseModels:
+            "application/json": "Empty"
+  ###POST Method for the resource
+  MethodLabel:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref APIGATEWAYLabel
+      ResourceId: !Ref ResourceLabel
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${BlogToQueueLabel.Arn}/invocations"
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseTemplates:
+              application/json: $input.json('$')
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        RequestTemplates:
+          application/json: $input.json('$')
+      RequestParameters:
+        method.request.querystring.name: false
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+          StatusCode: "200"
+  ###API Gateway GatewayResponse for DEFAULT 4XX
+  ApiGatewayDefault4XXResponse:
+    Type: AWS::ApiGateway::GatewayResponse
+    Properties:
+      ResponseType: DEFAULT_4XX
+      RestApiId: !Ref APIGATEWAYLabel
+      StatusCode: 400
+      ResponseTemplates:
+        application/json: |
+          {
+            "message": "Bad Request"
+          }
+      ResponseParameters:
+        gatewayresponse.header.Access-Control-Allow-Origin: "'*'" # Optional: Add this if you want to set CORS headers in 4XX responses
+
+  ###API Gateway GatewayResponse for DEFAULT 5XX
+  ApiGatewayDefault5XXResponse:
+    Type: AWS::ApiGateway::GatewayResponse
+    Properties:
+      ResponseType: DEFAULT_5XX
+      RestApiId: !Ref APIGATEWAYLabel
+      StatusCode: 500
+      ResponseTemplates:
+        application/json: |
+          {
+            "message": "Internal Server Error"
+          }
+      ResponseParameters:
+        gatewayresponse.header.Access-Control-Allow-Origin: "'*'" # Optional: Add this if you want to set CORS headers in 5XX responses
+  # Add a permission to allow API Gateway to invoke the Lambda function
+  ApiGatewayInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt BlogToQueueLabel.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${APIGATEWAYLabel}/*/*"
+  # Deploy the api
+  DeployApiLabel:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - MethodLabel
+    Properties:
+      RestApiId: !Ref APIGATEWAYLabel
+  # Test Stage
+  TestStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      DeploymentId: !Ref DeployApiLabel
+      RestApiId: !Ref APIGATEWAYLabel
+      StageName: test
+  ReactFrontEndLabel:
+    Type: "AWS::ElasticBeanstalk::Application"
+    Properties:
+      Description: "Frontend app on elastic beanstalk"
+      ApplicationName: "BlogItTest"
+  BlogIttestVersion:
+    Type: "AWS::ElasticBeanstalk::ApplicationVersion"
+    DependsOn:
+      - ReactFrontEndLabel
+    Properties:
+      ApplicationName: !Ref ReactFrontEndLabel
+      Description: "Application Version of the Frontend App"
+      SourceBundle:
+        S3Bucket: "myuniqicstreet"
+        S3Key: "test_final.zip"      
+  ReactFrontEndLabelConfig:
+    Type: "AWS::ElasticBeanstalk::ConfigurationTemplate"
+    Properties:
+     ApplicationName: !Ref ReactFrontEndLabel
+     Description: "Configuration Template for the Frontend App"
+     SolutionStackName: "64bit Amazon Linux 2 v5.8.4 running Node.js 14"
+     OptionSettings:
+      - Namespace: "aws:autoscaling:launchconfiguration"
+        OptionName: "InstanceType"
+        Value: "t3.micro,t3.small"
+      - Namespace: "aws:autoscaling:launchconfiguration"
+        OptionName: "EC2KeyName"
+        Value: "vockey"
+      - Namespace: "aws:autoscaling:launchconfiguration"
+        OptionName: "IamInstanceProfile"
+        Value: "LabInstanceProfile"
+      - Namespace: "aws:elasticbeanstalk:environment"
+        OptionName: "ServiceRole"
+        Value: "arn:aws:iam::524240663239:role/LabRole"
+      - Namespace: "aws:elasticbeanstalk:environment"
+        OptionName: "EnvironmentType"
+        Value: "SingleInstance"
+      - Namespace: "aws:elasticbeanstalk:application:environment"
+        OptionName: "REACT_APP_API_ENDPOINT"
+        Value: !Sub "https://${APIGATEWAYLabel}.execute-api.${AWS::Region}.amazonaws.com"
+  # Elastic Beanstalk Environment
+  ReactFrontEndEnvironment:
+    Type: "AWS::ElasticBeanstalk::Environment"
+    Properties:
+      ApplicationName: !Ref ReactFrontEndLabel
+      EnvironmentName: "ReactFrontEndEnvironment"
+      Description: "Elastic Beanstalk Environment for the Frontend App"
+      VersionLabel: !Ref BlogIttestVersion
+      TemplateName: !Ref ReactFrontEndLabelConfig
+      OptionSettings:
+        - Namespace: "aws:elasticbeanstalk:environment"
+          OptionName: "EnvironmentType"
+          Value: "SingleInstance"

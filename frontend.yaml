@@ -1,0 +1,42 @@
+#Front End deployment
+# Beanstalk for frontend
+  ReactFrontEndLabel:
+    Type: "AWS::ElasticBeanstalk::Application"
+    Properties:
+      Description: "Frontend app on elastic beanstalk"
+      ApplicationName: "BlogItTest"
+  CalculateTaxVersion:
+    Type: "AWS::ElasticBeanstalk::ApplicationVersion"
+    DependsOn:
+      - ReactFrontEndLabel
+    Properties:
+      ApplicationName: !Ref ReactFrontEndLabel
+      Description: "Application Version of the Frontend App"
+      SourceBundle:
+        S3Bucket: "myuniqicstreet"
+        S3Key: "testfrontend.zip"      
+  ReactFrontEndLabelConfig:
+    Type: "AWS::ElasticBeanstalk::ConfigurationTemplate"
+    Properties:
+     ApplicationName: !Ref ReactFrontEndLabel
+     Description: "Configuration Template for the Frontend App"
+     SolutionStackName: "64bit Amazon Linux 2 v5.8.3 running Node.js 18"
+     OptionSettings:
+      - Namespace: "aws:autoscaling:launchconfiguration"
+        OptionName: "InstanceType"
+        Value: "t3.micro,t3.small"
+      - Namespace: "aws:autoscaling:launchconfiguration"
+        OptionName: "EC2KeyName"
+        Value: "assignmet2"
+      - Namespace: "aws:autoscaling:launchconfiguration"
+        OptionName: "IamInstanceProfile"
+        Value: "LabInstanceProfile"
+      - Namespace: "aws:elasticbeanstalk:environment"
+        OptionName: "ServiceRole"
+        Value: "arn:aws:iam::524240663239:role/LabRole"
+      - Namespace: "aws:elasticbeanstalk:environment"
+        OptionName: "EnvironmentType"
+        Value: "SingleInstance"
+      - Namespace: "aws:elasticbeanstalk:application:environment"
+        OptionName: "REACT_APP_API_ENDPOINT"
+        Value: !Sub "https://${MyApiGateway}.execute-api.${AWS::Region}.amazonaws.com"
